@@ -11,7 +11,7 @@ from src.utils.print import print_text, print_texts
 class AIPlayer(BasePlayer):
     is_ai: bool = True
 
-    def choose_action(self, other_players: List[BasePlayer]) -> Tuple[Action, Optional[BasePlayer]]:
+    def choose_action(self, other_players: List[BasePlayer], game_state_dict) -> Tuple[Action, Optional[BasePlayer]]:
         """Choose the next action to perform"""
 
         available_actions = self.available_actions()
@@ -39,26 +39,26 @@ class AIPlayer(BasePlayer):
 
         return target_action, target_player
 
-    def determine_challenge(self, player: BasePlayer) -> bool:
+    def determine_challenge(self, player: BasePlayer, game_state_dict) -> bool:
         """Choose whether to challenge the current player"""
 
         # 20% chance of challenging
         return random.randint(0, 4) == 0
 
-    def determine_counter(self, player: BasePlayer) -> bool:
+    def determine_counter(self, player: BasePlayer, game_state_dict) -> bool:
         """Choose whether to counter the current player's action"""
 
         # 10% chance of countering
         return random.randint(0, 9) == 0
 
-    def remove_card(self) -> None:
+    def remove_card(self, game_state_dict) -> None:
         """Choose a card and remove it from your hand"""
 
         # Remove a random card
         discarded_card = self.cards.pop(random.randrange(len(self.cards)))
         print_texts(f"{self} discards their ", (f"{discarded_card}", discarded_card.style), " card")
 
-    def choose_exchange_cards(self, exchange_cards: list[Card]) -> Tuple[Card, Card]:
+    def choose_exchange_cards(self, exchange_cards: list[Card], game_state_dict) -> Tuple[Card, Card]:
         """Perform the exchange action. Pick which 2 cards to send back to the deck"""
 
         self.cards += exchange_cards

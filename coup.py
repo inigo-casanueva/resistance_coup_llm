@@ -3,12 +3,12 @@ import sys
 from rich.panel import Panel
 from rich.text import Text
 
+from src.models.players.llm_agent.players_chat import generate_players_chat
 from src.handler.game_handler import ResistanceCoupGameHandler
 from src.utils.print import (
     console,
     print_blank,
     print_confirm,
-    print_prompt,
     print_text,
 )
 
@@ -45,7 +45,8 @@ def main():
     console.print(panel)
 
     console.print()
-    player_name = print_prompt("What is your name, player?")
+    # player_name = print_prompt("What is your name, player?")
+    player_name = "inigo"
     handler = ResistanceCoupGameHandler(player_name, 5)
 
     console.print()
@@ -68,8 +69,13 @@ def main():
             console.print(panel)
 
             end_state = handler.handle_turn()
+            if turn_count % 5 == 0:
+                print("The players have started chatting!")
+                chat = generate_players_chat(handler.get_game_state_dict())
+                handler._chat_history.append(chat.summary)
 
         console.print()
+        print()
         game_ready = print_confirm("Want to play again?")
 
     print_blank()

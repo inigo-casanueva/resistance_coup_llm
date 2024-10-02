@@ -6,9 +6,8 @@ import names
 
 from src.models.action import Action, ActionType, CounterAction, get_counter_action
 from src.models.card import Card, build_deck
-from src.models.players.ai import AIPlayer
 from src.models.players.base import BasePlayer
-from src.models.players.human import HumanPlayer
+from src.models.players.llm_agent.agent import LLMPlayer
 from src.utils.game_state import generate_players_table, generate_state_panel
 from src.utils.print import (
     build_action_report_string,
@@ -33,15 +32,17 @@ class ResistanceCoupGameHandler:
     _deck: List[Card] = []
     _number_of_players: int = 0
     _treasury: int = 0
+    _game_history: List[List[str]] = []
+    _chat_history: List[List[str]] = []
 
     def __init__(self, player_name: str, number_of_players: int):
         self._number_of_players = number_of_players
 
         # Set up players
-        self._players.append(HumanPlayer(name=player_name))
+        # self._players.append(LLMPlayer(name=player_name))
 
         unique_names = set()
-        for i in range(number_of_players - 1):
+        for i in range(number_of_players):
             gender = random.choice(["male", "female"])
 
             ai_name = names.get_first_name(gender=gender)
@@ -50,7 +51,7 @@ class ResistanceCoupGameHandler:
 
             unique_names.add(ai_name)
 
-            self._players.append(AIPlayer(name=ai_name))
+            self._players.append(LLMPlayer(name=ai_name))
 
     @property
     def current_player(self) -> BasePlayer:
@@ -60,6 +61,22 @@ class ResistanceCoupGameHandler:
     def remaining_player(self) -> BasePlayer:
         """Return the only remaining player"""
         return [player for player in self._players if player.is_active][0]
+
+    def add_to_game_history(self, message: str):
+        self._game_history[-1].append(message)
+
+    def get_game_state_dict(self, **kwargs) -> dict:
+        game_state_dict = {
+            "players": self._players,
+            "deck": self._deck,
+            "treasury": self._treasury,
+            "current_player_index": self._current_player_index,
+            "game_history": self._game_history,
+            "chat_history": self._chat_history
+        }
+        for arg, value in kwargs.items():
+            game_state_dict[arg] = value
+        return game_state_dict
 
     def print_game_state(self) -> None:
         print_table(generate_players_table(self._players, self._current_player_index))
@@ -137,12 +154,18 @@ class ResistanceCoupGameHandler:
         self, players_without_current: list[BasePlayer]
     ) -> Tuple[Action, Optional[BasePlayer]]:
         # Player chooses action
-        target_action, target_player = self.current_player.choose_action(players_without_current)
+        game_state_dict = self.get_game_state_dict()
+        target_action, target_player = self.current_player.choose_action(players_without_current, game_state_dict)
+
+        action_report_string = build_action_report_string(
+                player=self.current_player, action=target_action, target_player=target_player
+            )
+
+        self.add_to_game_history(action_report_string.replace(
+            "[bold magenta]", "").replace("[/]", ""))
 
         print_text(
-            build_action_report_string(
-                player=self.current_player, action=target_action, target_player=target_player
-            ),
+            action_report_string,
             with_markup=True,
         )
 
@@ -154,19 +177,24 @@ class ResistanceCoupGameHandler:
         # Player being challenged reveals the card
         print_texts(f"{player_being_challenged} reveals their ", (f"{card}", card.style), " card!")
         print_text(f"{challenger} loses the challenge")
+        self.add_to_game_history(f"{player_being_challenged} reveals their {card} card!")
+        self.add_to_game_history(f"{challenger} loses the challenge")
 
         # Challenge player loses influence (chooses a card to remove)
-        challenger.remove_card()
+        game_state_dict = self.get_game_state_dict(challenger=challenger)
+        challenger.remove_card(game_state_dict)
 
         # Player puts card into the deck and gets a new card
         print_text(f"{player_being_challenged} gets a new card")
+        self.add_to_game_history(f"{player_being_challenged} gets a new card")
         self._swap_card(player_being_challenged, card)
 
     def _challenge_against_player_succeeded(self, player_being_challenged: BasePlayer):
         print_text(f"{player_being_challenged} bluffed! They do not have the required card!")
-
+        self.add_to_game_history(f"{player_being_challenged} bluffed! They do not have the required card!")
         # Player being challenged loses influence (chooses a card to remove)
-        player_being_challenged.remove_card()
+        game_state_dict = self.get_game_state_dict(player_being_challenged=player_being_challenged)
+        player_being_challenged.remove_card(game_state_dict)
 
     def _challenge_phase(
         self,
@@ -176,10 +204,11 @@ class ResistanceCoupGameHandler:
     ) -> ChallengeResult:
         # Every player can choose to challenge
         for challenger in other_players:
-            should_challenge = challenger.determine_challenge(player_being_challenged)
+            game_state_dict = self.get_game_state_dict(action_being_challenged=action_being_challenged)
+            should_challenge = challenger.determine_challenge(player_being_challenged, game_state_dict)
             if should_challenge:
-                if challenger.is_ai:
-                    print_text(f"{challenger} is challenging {player_being_challenged}!")
+                print_text(f"{challenger} is challenging {player_being_challenged}!")
+                self.add_to_game_history(f"{challenger} is challenging {player_being_challenged}!")
                 # Player being challenged has the card
                 if card := player_being_challenged.find_card(
                     action_being_challenged.associated_card_type
@@ -204,16 +233,17 @@ class ResistanceCoupGameHandler:
     ) -> Tuple[Optional[BasePlayer], Optional[CounterAction]]:
         # Every player can choose to counter
         for countering_player in players_without_current:
-            should_counter = countering_player.determine_counter(self.current_player)
+            game_state_dict = self.get_game_state_dict(target_action=target_action)
+            should_counter = countering_player.determine_counter(self.current_player, game_state_dict)
             if should_counter:
                 target_counter = get_counter_action(target_action.action_type)
-                print_text(
-                    build_counter_report_string(
+                counter_report_string = build_counter_report_string(
                         target_player=self.current_player,
                         counter=target_counter,
                         countering_player=countering_player,
                     )
-                )
+                print_text(counter_report_string)
+                self.add_to_game_history(counter_report_string)
 
                 return countering_player, target_counter
 
@@ -227,31 +257,38 @@ class ResistanceCoupGameHandler:
                 # Player gets 1 coin
                 self._take_coin_from_treasury(self.current_player, 1)
                 print_text(f"{self.current_player}'s coins are increased by 1")
+                self.add_to_game_history(f"{self.current_player}'s coins are increased by 1")
             case ActionType.foreign_aid:
                 if not countered:
                     # Player gets 2 coin
                     self._take_coin_from_treasury(self.current_player, 2)
                     print_text(f"{self.current_player}'s coins are increased by 2")
+                    self.add_to_game_history(f"{self.current_player}'s coins are increased by 2")
             case ActionType.coup:
                 # Player pays 7 coin
                 self._give_coin_to_treasury(self.current_player, 7)
                 print_text(
                     f"{self.current_player} pays 7 coins and performs the coup against {target_player}"
                 )
+                self.add_to_game_history(f"{self.current_player} pays 7 coins and performs the coup against {target_player}")
 
                 if target_player.cards:
                     # Target player loses influence
-                    target_player.remove_card()
+                    game_state_dict = self.get_game_state_dict()
+                    target_player.remove_card(game_state_dict)
             case ActionType.tax:
                 # Player gets 3 coins
                 self._take_coin_from_treasury(self.current_player, 3)
                 print_text(f"{self.current_player}'s coins are increased by 3")
+                self.add_to_game_history(f"{self.current_player}'s coins are increased by 3")
             case ActionType.assassinate:
                 # Player pays 3 coin
                 self._give_coin_to_treasury(self.current_player, 3)
                 if not countered and target_player.cards:
                     print_text(f"{self.current_player} assassinates {target_player}")
-                    target_player.remove_card()
+                    self.add_to_game_history(f"{self.current_player} assassinates {target_player}")
+                    game_state_dict = self.get_game_state_dict()
+                    target_player.remove_card(game_state_dict)
             case ActionType.steal:
                 if not countered:
                     # Take 2 (or all) coins from a player
@@ -261,14 +298,17 @@ class ResistanceCoupGameHandler:
                     print_text(
                         f"{self.current_player} steals {steal_amount} coins from {target_player}"
                     )
+                    self.add_to_game_history(f"{self.current_player} steals {steal_amount} coins from {target_player}")
             case ActionType.exchange:
                 # Get 2 random cards from deck
                 cards = [self._deck.pop(), self._deck.pop()]
-                first_card, second_card = self.current_player.choose_exchange_cards(cards)
+                game_state_dict = self.get_game_state_dict()
+                first_card, second_card = self.current_player.choose_exchange_cards(cards, game_state_dict)
                 self._deck.append(first_card)
                 self._deck.append(second_card)
 
     def handle_turn(self) -> bool:
+        self._game_history.append([])
         players_without_current = self._players_without_player(self.current_player)
 
         # Choose an action to perform
@@ -326,6 +366,7 @@ class ResistanceCoupGameHandler:
         while player := self._remove_defeated_player():
             if player.is_ai:
                 print_text(f"{player} was defeated! :skull: :skull: :skull:", with_markup=True)
+                self.add_to_game_history(f"{player} was defeated!")
             else:
                 # Our human was defeated
                 print_text("You were defeated! :skull: :skull: :skull:", with_markup=True)

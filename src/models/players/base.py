@@ -65,27 +65,27 @@ class BasePlayer(BaseModel, ABC):
 
     @abstractmethod
     def choose_action(
-        self, other_players: List["BasePlayer"]
+        self, other_players: List["BasePlayer"], game_state_dict
     ) -> Tuple[Action, Optional["BasePlayer"]]:
         """Choose the next action to perform"""
         pass
 
     @abstractmethod
-    def determine_challenge(self, player: "BasePlayer") -> bool:
+    def determine_challenge(self, player: "BasePlayer", game_state_dict) -> bool:
         """Choose whether to challenge the current player"""
         pass
 
     @abstractmethod
-    def determine_counter(self, player: "BasePlayer") -> CounterAction:
+    def determine_counter(self, player: "BasePlayer", game_state_dict) -> CounterAction:
         """Choose whether to counter the current player's action"""
         pass
 
     @abstractmethod
-    def remove_card(self) -> None:
+    def remove_card(self, game_state_dict) -> None:
         """Choose a card and remove it from your hand"""
         pass
 
     @abstractmethod
-    def choose_exchange_cards(self, exchange_cards: list[Card]) -> Tuple[Card, Card]:
+    def choose_exchange_cards(self, exchange_cards: list[Card], game_state_dict) -> Tuple[Card, Card]:
         """Perform the exchange action. Pick which 2 cards to send back to the deck"""
         pass

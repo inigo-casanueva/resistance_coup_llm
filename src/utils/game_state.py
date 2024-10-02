@@ -42,7 +42,7 @@ def generate_players_table(players: List[BasePlayer], current_player_index: int)
         card_text = Text()
         if player.is_active:
             for card in player.cards:
-                if player.is_ai:
+                if 0:  # player.is_ai:  # Show AI players' cards
                     card_text.append("<Secret...> ")
                 else:
                     card_text.append(
